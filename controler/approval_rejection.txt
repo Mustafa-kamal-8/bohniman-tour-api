@@ -1,0 +1,200 @@
+const express = require('express');
+const http = require('http');
+const socketIO = require('socket.io');
+const Expense = require('../models/Expense');
+const ApprovalHistory = require('../models/ApprovalHistory');
+const Notification = require('../models/Notification');
+
+const app = express();
+const server = http.createServer(app);
+const io = socketIO(server);
+
+// ... (configure other middleware, routes, etc.)
+
+// Socket.IO logic
+io.on('connection', (socket) => {
+  console.log('A user connected');
+
+  // Handle disconnection
+  socket.on('disconnect', () => {
+    console.log('User disconnected');
+  });
+});
+
+// Endpoint for manager approval
+app.put('/approve/manager/:expenseId', async (req, res) => {
+  const { expenseId } = req.params;
+
+  try {
+    const managerId = req.user.id;
+
+    // Authorization check (role-specific logic here)
+    if (req.user.role !== 'manager') {
+      return res.status(403).json({ error: 'You do not have the authority to approve expenses.' });
+    }
+
+    const updatedExpense = await Expense.findByIdAndUpdate(
+      expenseId,
+      { $set: { 'categories.transportation.status': 'Approved' } },
+      { new: true }
+    );
+
+    await ApprovalHistory.create({
+      userId: managerId,
+      expenseId: updatedExpense._id,
+      type: 'expense',
+      status: 'Approved',
+    });
+
+    await Notification.create({
+      userId: updatedExpense.userId,
+      type: 'expense-approve',
+      message: 'Your expense has been approved by the manager.',
+    });
+
+    io.to(updatedExpense.userId).emit('expense-approval', {
+      expenseId: updatedExpense._id,
+      message: 'Your expense has been approved by the manager.',
+    });
+
+    res.json({ message: 'Expense approved by manager.' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// Endpoint for manager rejection
+app.put('/reject/manager/:expenseId', async (req, res) => {
+  // Similar logic as manager approval with status set to 'Rejected'
+  // Emit a socket event for expense rejection
+  // ...
+
+  res.json({ message: 'Expense rejected by manager.' });
+});
+
+// Endpoint for employee modifying an expense
+app.put('/modify/employee/:expenseId', async (req, res) => {
+  try {
+    const { expenseId } = req.params;
+    const { modifications } = req.body; // Assuming modifications is an object with updated values
+
+    // Update the expense with the modifications
+    const updatedExpense = await Expense.findByIdAndUpdate(
+      expenseId,
+      { $set: modifications },
+      { new: true }
+    );
+
+    // Emit a socket event for expense modification
+    io.to(updatedExpense.userId).emit('expense-modification', {
+      expenseId: updatedExpense._id,
+      message: 'Your expense has been modified by the employee.',
+    });
+
+    res.json({ message: 'Expense modified by employee.' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// Endpoint for financier approval
+app.put('/approve/financier/:expenseId', async (req, res) => {
+  // Similar logic as manager approval with status set to 'Approved' and appropriate fields
+  // Emit a socket event for financier approval
+  // ...
+
+  res.json({ message: 'Expense approved by financier.' });
+});
+
+// Endpoint for financier rejection
+app.put('/reject/financier/:expenseId', async (req, res) => {
+  // Similar logic as manager rejection with status set to 'Rejected' and appropriate fields
+  // Emit a socket event for financier rejection
+  // ...
+
+  res.json({ message: 'Expense rejected by financier.' });
+});
+
+// ... (start the server)
+
+module.exports = server;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+const mongoose = require('mongoose');
+
+const expenseSchema = new mongoose.Schema({
+  date: { type: Date, required: true },
+  categories: {
+    transportation: { type: Number, default: 0 },
+    meals: { type: Number, default: 0 },
+    hotel: { type: Number, default: 0 },
+    phoneCalls: { type: Number, default: 0 },
+    other: { type: Number, default: 0 },
+  },
+  status: { type: String, default: 'Pending' }, // 'Pending', 'Approved', 'Rejected'
+  managerApproval: { type: String, default: 'Pending' }, // 'Pending', 'Approved', 'Rejected'
+  financierApproval: { type: String, default: 'Pending' }, // 'Pending', 'Approved', 'Rejected'
+  // Other fields as needed
+});
+
+const Expense = mongoose.model('Expense', expenseSchema);
+
+module.exports = Expense;
+
+
+
+// Manager approval
+app.put('/approve/manager/:expenseId', async (req, res) => {
+  const { expenseId } = req.params;
+
+  try {
+    // Authorization check
+    // ...
+
+    // Update the expense status and manager approval status
+    const updatedExpense = await Expense.findByIdAndUpdate(
+      expenseId,
+      { $set: { status: 'Approved', managerApproval: 'Approved' } },
+      { new: true }
+    );
+
+    // Emit socket event for manager approval
+    io.to(updatedExpense.userId).emit('manager-approval', {
+      expenseId: updatedExpense._id,
+      message: 'Your expense has been approved by the manager.',
+    });
+
+    res.json({ message: 'Expense approved by manager.' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// Financier approval
+app.put('/approve/financier/:expenseId', async (req, res) => {
+  // Similar logic as manager approval with status set to 'Approved' and financier approval status updated
+  // Emit socket event for financier approval
+  // ...
+
+  res.json({ message: 'Expense approved by financier.' });
+});
+
+// Rejection logic for both manager and financier
+// ...
